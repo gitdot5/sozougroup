@@ -1,0 +1,7 @@
+node_modules/
+audit-log.csv
+flagged-items.csv
+recat-log.csv
+recat-errors.csv
+error-screenshot-*.png
+.DS_Store

@@ -1,0 +1,20 @@
+{
+  "name": "xtrachef-automation",
+  "version": "3.5.0",
+  "description": "xtraCHEF TO REVIEW item processor for Celestia + Ishin",
+  "scripts": {
+    "dry-run": "node process-items.js --dry-run --limit 10",
+    "dry-run-all": "node process-items.js --dry-run",
+    "start": "node process-items.js",
+    "start-pause": "node process-items.js --pause",
+    "start-10": "node process-items.js --limit 10",
+    "start-50": "node process-items.js --limit 50",
+    "recat-preview": "node recategorize-items.js --dry-run",
+    "recat": "node recategorize-items.js",
+    "recat-pause": "node recategorize-items.js --pause",
+    "recat-10": "node recategorize-items.js --limit 10"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}
