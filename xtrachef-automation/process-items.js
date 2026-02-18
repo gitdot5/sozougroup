@@ -1273,8 +1273,30 @@ async function processItem(page, lastDescription, lastItemNumber) {
 // ============================================================
 
 async function navigateAndFilter(page) {
+  console.log('  >> Navigating to Item Library URL...');
   await page.goto(CONFIG.itemLibraryUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-  await delay(3000);
+  await delay(5000); // Extra wait for table to render
+
+  // Debug: log what we see on the page
+  const pageDebug = await page.evaluate(() => {
+    const url = window.location.href;
+    const title = document.title;
+    const bodyText = document.body.innerText.substring(0, 500);
+    const buttons = Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t.length > 0);
+    const rows = document.querySelectorAll('tr').length;
+    const toReviewCount = Array.from(document.querySelectorAll('tr')).filter(r => r.textContent.includes('TO REVIEW')).length;
+    return { url, title, buttons: buttons.slice(0, 20), rows, toReviewCount, bodyText };
+  });
+  console.log(`  >> Page URL: ${pageDebug.url}`);
+  console.log(`  >> Page title: ${pageDebug.title}`);
+  console.log(`  >> Table rows: ${pageDebug.rows}, TO REVIEW rows: ${pageDebug.toReviewCount}`);
+  console.log(`  >> Buttons found: ${pageDebug.buttons.join(', ')}`);
+
+  // If we already see TO REVIEW rows, no need to filter
+  if (pageDebug.toReviewCount > 0) {
+    console.log(`  >> Found ${pageDebug.toReviewCount} TO REVIEW items already visible.`);
+    return;
+  }
 
   const filterClicked = await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button'));
@@ -1286,28 +1308,42 @@ async function navigateAndFilter(page) {
     return false;
   });
 
-  if (filterClicked) {
-    await delay(1000);
+  console.log(`  >> More Filters button: ${filterClicked ? 'clicked' : 'NOT FOUND'}`);
 
-    await page.evaluate(() => {
+  if (filterClicked) {
+    await delay(1500);
+
+    const filterApplied = await page.evaluate(() => {
       const labels = Array.from(document.querySelectorAll('label, span'));
       const label = labels.find(l => l.textContent.trim() === 'To Review');
       if (label) {
         const checkbox = label.closest('label')?.querySelector('input[type="checkbox"]')
           || label.previousElementSibling;
         const target = checkbox || label;
-        if (target) target.click();
+        if (target) { target.click(); return true; }
       }
+      return false;
     });
+    console.log(`  >> To Review filter: ${filterApplied ? 'clicked' : 'NOT FOUND'}`);
     await delay(500);
 
-    await page.evaluate(() => {
+    const applyClicked = await page.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll('button'));
       const btn = buttons.find(b => b.textContent.includes('Apply'));
-      if (btn) btn.click();
+      if (btn) { btn.click(); return true; }
+      return false;
     });
-    await delay(2000);
+    console.log(`  >> Apply button: ${applyClicked ? 'clicked' : 'NOT FOUND'}`);
+    await delay(3000);
   }
+
+  // Check again after filtering
+  const afterFilter = await page.evaluate(() => {
+    const rows = document.querySelectorAll('tr').length;
+    const toReviewCount = Array.from(document.querySelectorAll('tr')).filter(r => r.textContent.includes('TO REVIEW')).length;
+    return { rows, toReviewCount };
+  });
+  console.log(`  >> After filter: ${afterFilter.rows} rows, ${afterFilter.toReviewCount} TO REVIEW`);
 }
 
 async function clickFirstToReviewItem(page) {
@@ -1334,7 +1370,7 @@ async function clickFirstToReviewItem(page) {
 
 async function main() {
   console.log('==============================================');
-  console.log('  xtraCHEF Inventory Processor v3.6');
+  console.log('  xtraCHEF Inventory Processor v3.7');
   console.log('  Celestia + Ishin');
   console.log('==============================================');
   console.log(`  Mode: ${DRY_RUN ? 'DRY RUN (read only)' : 'LIVE (will make changes)'}`);
@@ -1370,9 +1406,17 @@ async function main() {
   await navigateAndFilter(page);
 
   console.log('Clicking into first TO REVIEW item...');
-  const found = await clickFirstToReviewItem(page);
+  let found = await clickFirstToReviewItem(page);
   if (!found) {
-    console.log('No TO REVIEW items found. Exiting.');
+    console.log('No TO REVIEW items found on first attempt. Retrying in 5 seconds...');
+    await delay(5000);
+    found = await clickFirstToReviewItem(page);
+  }
+  if (!found) {
+    console.log('Still no TO REVIEW items found after retry.');
+    console.log('\nThe browser will stay open so you can check the page.');
+    console.log('Check: Are you on the right business? Do you see TO REVIEW items?');
+    await waitForEnter('Press ENTER to close the browser and exit... ');
     await browser.close();
     return;
   }
