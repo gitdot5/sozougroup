@@ -70,6 +70,83 @@ const VENDOR_RULES = [
     glCode: 'Event materials',
     vendors: ['General Wholesale Company'],
   },
+  // Japanese seafood suppliers
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['One Ocean'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['East Sea Trading'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['OHTA FOODS MARKET CO, Ltd.'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['True World Foods Atlanta'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['Arrivato Imports LLC'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['Pure Chilean, LLC'],
+  },
+  {
+    category: 'Seafood',
+    glCode: null,
+    vendors: ['Farmers & Fishermen Purveyors'],
+  },
+  // Japanese dry goods / pantry suppliers
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    vendors: ['ATLANTA MUTUAL TRADING'],
+  },
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    vendors: ['JFC'],
+  },
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    vendors: ['JFC - 50'],
+  },
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    vendors: ['YAMASHO Atlanta Inc'],
+  },
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    vendors: ['Larder Foods'],
+  },
+  // Specialty produce / mixed vendors (keyword rules handle specifics)
+  // Note: Athena Farms, Sysco, Al Madina, International Gourmet are mixed
+  // vendors. They stay keyword-matched, not vendor-matched.
+  //
+  // Non-food vendors
+  {
+    category: 'Non-Food Items',
+    glCode: 'Supplies',
+    vendors: ['OFFICE DEPOT OFFICEMAX'],
+  },
+  {
+    category: 'Non-Food Items',
+    glCode: 'Supplies',
+    vendors: ['Edward Don'],
+  },
   // Note: RNDC, Prime Wine & Spirits, Winebow already have correct categories
   // Only add them here if items from these vendors are in Food Purchases
 ];
@@ -293,6 +370,24 @@ const KEYWORD_RULES = [
 
 // Only recategorize items currently in these categories
 const SOURCE_CATEGORIES = ['Food Purchases', 'Food Purchases '];
+
+// ============================================================
+// GL CODE FIXES (independent of category changes)
+// Fix items that have wrong GL codes regardless of category
+// ============================================================
+
+const GL_FIXES = [
+  {
+    // Dairy items with "Airfare" GL should be "5000"
+    condition: (item) => {
+      const cat = (item.category || '').trim();
+      const gl = (item.glCode || '').trim();
+      return cat === 'Dairy' && gl === 'Airfare';
+    },
+    targetGL: '5000',
+    reason: 'Dairy items should not have Airfare GL code',
+  },
+];
 
 // ============================================================
 // DETERMINE TARGET CATEGORY + GL
