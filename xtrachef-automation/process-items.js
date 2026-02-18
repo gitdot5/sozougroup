@@ -1080,8 +1080,20 @@ async function processItem(page, lastDescription, lastItemNumber) {
 
   const japaneseFlag = isJapaneseFish(item.vendor, item.description);
   const nonFoodFlag = isNonFood(item.description);
-  const targetGLCode = japaneseFlag ? CONFIG.ishinGLCode : CONFIG.defaultGLCode;
-  const targetCategory = nonFoodFlag ? CONFIG.nonFoodCategory : CONFIG.defaultCategory;
+
+  // PRESERVE existing category if already set (not empty / not "Select category")
+  const hasExistingCategory = item.category && 
+    !item.category.toLowerCase().includes('select') && 
+    item.category.trim() !== '';
+  const targetCategory = hasExistingCategory 
+    ? item.category 
+    : (nonFoodFlag ? CONFIG.nonFoodCategory : CONFIG.defaultCategory);
+
+  // PRESERVE existing GL code if already set (not empty)
+  const hasExistingGL = item.glCode && item.glCode.trim() !== '';
+  const targetGLCode = hasExistingGL 
+    ? item.glCode 
+    : (japaneseFlag ? CONFIG.ishinGLCode : CONFIG.defaultGLCode);
   const productName = cleanProductName(item.description);
   const familyUnit = determineFamilyUnit(item.description);
 
@@ -1159,15 +1171,21 @@ async function processItem(page, lastDescription, lastItemNumber) {
     console.log(`  >> Unit already set: ${item.unit}`);
   }
 
-  // Step 1: Set category
-  if (item.category.toLowerCase() !== targetCategory.toLowerCase()) {
+  // Step 1: Set category (only if empty or "Select category")
+  if (!hasExistingCategory) {
     console.log(`  >> Setting category to: ${targetCategory}`);
     await setCategory(page, targetCategory);
+  } else {
+    console.log(`  >> Keeping existing category: ${item.category}`);
   }
 
-  // Step 2: Set GL code
-  console.log(`  >> Setting GL code to: ${targetGLCode}`);
-  await setGLCode(page, targetGLCode);
+  // Step 2: Set GL code (only if empty)
+  if (!hasExistingGL) {
+    console.log(`  >> Setting GL code to: ${targetGLCode}`);
+    await setGLCode(page, targetGLCode);
+  } else {
+    console.log(`  >> Keeping existing GL code: ${item.glCode}`);
+  }
 
   // Step 3: Create/assign product
   if (!item.hasProduct) {
@@ -1370,7 +1388,7 @@ async function clickFirstToReviewItem(page) {
 
 async function main() {
   console.log('==============================================');
-  console.log('  xtraCHEF Inventory Processor v3.7');
+  console.log('  xtraCHEF Inventory Processor v3.8');
   console.log('  Celestia + Ishin');
   console.log('==============================================');
   console.log(`  Mode: ${DRY_RUN ? 'DRY RUN (read only)' : 'LIVE (will make changes)'}`);
