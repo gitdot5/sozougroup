@@ -127,6 +127,168 @@ const KEYWORD_RULES = [
       'purchase summary', 'delivery fee', 'fuel surcharge',
     ],
   },
+  // ============================================================
+  // FOOD SUBCATEGORY RULES (for items in "Food Purchases")
+  // These move items from generic "Food Purchases" to specific
+  // food subcategories. GL code stays the same (null = no change).
+  // ============================================================
+  // Seafood
+  {
+    category: 'Seafood',
+    glCode: null,
+    keywords: [
+      'salmon', 'tuna', 'shrimp', 'prawn', 'crab', 'lobster',
+      'scallop', 'mussel', 'mussels', 'clam', 'oyster', 'squid', 'calamari',
+      'octopus', 'tako', 'uni ', 'ikura', 'tobiko', 'masago',
+      'hamachi', 'yellowtail', 'snapper', 'sea bass', 'branzino',
+      'halibut', 'cod ', 'swordfish', 'mahi', 'grouper',
+      'tilapia', 'catfish', 'trout', 'mackerel', 'saba ',
+      'eel ', 'unagi', 'anago', 'ika ', 'ebi ', 'hotate',
+      'fish', 'seafood', 'sashimi',
+      'crabmeat', 'crab meat', 'surimi', 'kani ',
+      'anchovy', 'anchovies', 'sardine',
+      'crawfish', 'langoustine',
+      'lump crab', 'snow crab', 'king crab',
+      'amaebi', 'hirame', 'madai', 'kanpachi',
+      'suzuki', 'tai ', 'maguro', 'engawa',
+      'yagara', 'cornet fish',
+      'one ocean',  // vendor-in-keyword fallback
+    ],
+  },
+  // Meat / Protein
+  {
+    category: 'Meat/ Protein',
+    glCode: null,
+    keywords: [
+      'chicken', 'beef', 'pork', 'lamb', 'duck', 'quail', 'turkey',
+      'wagyu', 'ribeye', 'strip steak', 'tenderloin', 'filet', 'fillet',
+      'ground meat', 'ground beef', 'ground pork', 'ground lamb',
+      'bacon', 'sausage', 'chorizo', 'prosciutto', 'salami',
+      'thigh', 'breast', 'wing', 'drumstick', 'leg quarter',
+      'bnls', 'boneless', 'bone-in', 'bone in',
+      'oxtail', 'short rib', 'brisket', 'chuck', 'flank',
+      'pork belly', 'pork loin', 'pork chop', 'pork shoulder',
+      'ham ', 'pepperoni', 'mortadella', 'bresaola',
+      'liver', 'gizzard', 'heart',
+      'veal', 'venison', 'rabbit', 'goat',
+      'rack ', 'french rack', 'lamb rack',
+      'halal', 'blsl',
+    ],
+  },
+  // Produce
+  {
+    category: 'Produce',
+    glCode: null,
+    keywords: [
+      'lettuce', 'spinach', 'kale', 'arugula', 'cabbage',
+      'tomato', 'onion', 'garlic',
+      'jalapeno', 'habanero', 'serrano',
+      'carrot', 'celery', 'cucumber', 'zucchini',
+      'broccoli', 'cauliflower', 'asparagus', 'artichoke',
+      'mushroom', 'shiitake', 'enoki', 'maitake', 'oyster mushroom',
+      'potato', 'sweet potato', 'yam ',
+      'avocado', 'lime ', 'lemon', 'orange ',
+      'apple', 'banana', 'mango', 'papaya', 'pineapple',
+      'strawberry', 'blueberry', 'raspberry', 'blackberry',
+      'watermelon', 'melon', 'cantaloupe', 'honeydew',
+      'peach', 'pear ', 'plum', 'cherry', 'grape',
+      'basil', 'cilantro', 'parsley', 'mint ', 'thyme', 'rosemary',
+      'dill ', 'chive', 'scallion', 'green onion', 'shallot',
+      'ginger', 'galangal', 'lemongrass', 'turmeric',
+      'bean sprout', 'sprouts', 'edamame',
+      'corn ', 'peas', 'green bean', 'snap pea', 'snow pea',
+      'eggplant', 'squash', 'pumpkin', 'butternut',
+      'radish', 'daikon', 'turnip', 'beet',
+      'fennel', 'bok choy', 'napa cabbage',
+      'watercress', 'endive', 'radicchio',
+      'lychee', 'dragon fruit', 'passion fruit', 'coconut',
+      'fig ', 'date ', 'pomegranate', 'persimmon', 'yuzu',
+      'microgreen', 'mixed greens', 'mesclun',
+      'herb', 'romaine', 'iceberg',
+      'brussel', 'brussels',
+      'fonion', 'f onion',
+    ],
+  },
+  // Dairy
+  {
+    category: 'Dairy',
+    glCode: null,
+    keywords: [
+      'milk', 'cream', 'butter', 'cheese', 'yogurt', 'yoghurt',
+      'mozzarella', 'parmesan', 'cheddar', 'gouda', 'brie',
+      'cream cheese', 'ricotta', 'mascarpone', 'burrata',
+      'sour cream', 'creme fraiche', 'half and half', 'half & half',
+      'heavy cream', 'whipping cream', 'whole milk', 'skim milk',
+      'buttermilk', 'condensed milk', 'evaporated milk',
+      'egg ', 'eggs',
+      'manchego', 'gruyere', 'pecorino', 'feta', 'goat cheese',
+      'blue cheese', 'gorgonzola', 'stilton',
+      'queso', 'cotija', 'oaxaca cheese',
+      'plugra', 'asher blue',
+    ],
+  },
+  // Dry Goods / Pantry
+  {
+    category: 'Dry Goods',
+    glCode: null,
+    keywords: [
+      'rice ', 'flour', 'sugar', 'salt ',
+      'pasta', 'noodle', 'spaghetti', 'penne', 'linguine',
+      'soy sauce', 'shoyu', 'tamari', 'fish sauce',
+      'vinegar', 'mirin', 'cooking sake', 'cooking wine',
+      'sesame oil', 'olive oil', 'canola oil', 'vegetable oil',
+      'panko', 'breadcrumb', 'tempura',
+      'miso', 'dashi', 'bonito', 'kombu', 'nori', 'seaweed',
+      'wasabi', 'sriracha', 'hot sauce', 'chili sauce',
+      'ketchup', 'mustard', 'mayonnaise', 'mayo',
+      'soybean', 'tofu', 'bean curd',
+      'dried', 'dehydrated',
+      'seasoning', 'cumin', 'paprika', 'oregano',
+      'cinnamon', 'nutmeg', 'clove', 'allspice',
+      'cayenne', 'black pepper', 'white pepper',
+      'cornstarch', 'corn starch', 'potato starch', 'tapioca',
+      'baking soda', 'baking powder', 'yeast',
+      'honey', 'maple syrup', 'molasses', 'agave',
+      'chocolate', 'cocoa', 'vanilla extract', 'vanilla bean',
+      'almond', 'walnut', 'pecan', 'cashew', 'pistachio', 'peanut',
+      'coconut milk', 'coconut cream',
+      'tomato paste', 'tomato sauce', 'san marzano',
+      'lentil', 'chickpea',
+      'jam ', 'jelly', 'preserve',
+      'pickle', 'pickled', 'kimchi',
+      'spring roll', 'wonton', 'dumpling', 'gyoza',
+      'tortilla', 'wrap ',
+      'hondashi', 'ajinomoto',
+      'truffle ', 'truffle oil', 'truffle salt',
+      'puree', 'coulis',
+    ],
+  },
+  // Baked Goods
+  {
+    category: 'Baked Goods',
+    glCode: null,
+    keywords: [
+      'bread', 'baguette', 'croissant', 'brioche', 'ciabatta',
+      'roll ', 'rolls ', 'bun ', 'pita', 'naan', 'flatbread',
+      'cake ', 'pastry', 'pie ',
+      'cookie', 'brownie', 'muffin', 'scone',
+      'donut', 'doughnut',
+    ],
+  },
+  // Beverages (non-alcohol)
+  {
+    category: 'Beverages',
+    glCode: null,
+    keywords: [
+      'soda ', 'cola ', 'sprite', 'ginger ale',
+      'coffee', 'espresso',
+      'tonic', 'club soda',
+      'lemonade', 'iced tea',
+      'energy drink', 'red bull',
+      'kombucha',
+      'coke soda', 'diet coke', 'fanta',
+    ],
+  },
 ];
 
 // Only recategorize items currently in these categories
@@ -693,7 +855,7 @@ async function closeItemDetail(page) {
 
 async function main() {
   console.log('==============================================');
-  console.log('  xtraCHEF Category Cleanup v2.0');
+  console.log('  xtraCHEF Category Cleanup v2.1');
   console.log('  Recategorize items from audit log or export');
   console.log('==============================================');
   console.log(`  Mode: ${DRY_RUN ? 'DRY RUN (preview only)' : 'LIVE (will update categories + GL codes)'}`);
