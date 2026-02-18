@@ -23,29 +23,82 @@ const CONFIG = {
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const PAUSE_EACH = process.argv.includes('--pause');
+const USE_EXPORT = process.argv.includes('--export');
 const LIMIT = (() => {
   const idx = process.argv.indexOf('--limit');
   if (idx !== -1 && process.argv[idx + 1]) return parseInt(process.argv[idx + 1]);
   return 9999;
 })();
+const EXPORT_FILE = (() => {
+  const idx = process.argv.indexOf('--export');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return null;
+})();
 
 // ============================================================
-// CATEGORY MAPPING
-// Edit these keyword lists to control recategorization.
+// CATEGORY + GL MAPPING RULES
+// ============================================================
+//
+// Two types of rules:
+//   1. VENDOR rules: match by vendor name (highest priority)
+//   2. KEYWORD rules: match by item description
+//
+// Each rule specifies:
+//   - category: target category name in xtraCHEF
+//   - glCode: target GL code (null = don't change GL)
+//   - keywords OR vendors: match criteria
+//
 // First match wins. Order matters.
 // ============================================================
 
-const CATEGORY_RULES = [
+const VENDOR_RULES = [
+  {
+    category: 'Liquor',
+    glCode: 'Event materials',
+    vendors: ['Empire Distributors'],
+    // Exception: some Empire items are NA Beverages, not liquor
+    // Those should already have the correct category, so we only
+    // recategorize items currently in "Food Purchases"
+  },
+  {
+    category: 'Liquor',
+    glCode: 'Event materials',
+    vendors: ['SAVANNAH DISTRIBUTING CO INC'],
+  },
+  {
+    category: 'Liquor',
+    glCode: 'Event materials',
+    vendors: ['General Wholesale Company'],
+  },
+  // Note: RNDC, Prime Wine & Spirits, Winebow already have correct categories
+  // Only add them here if items from these vendors are in Food Purchases
+];
+
+const KEYWORD_RULES = [
+  // Liquor/alcohol from non-liquor vendors (e.g., grocery stores)
+  {
+    category: 'Liquor',
+    glCode: 'Event materials',
+    keywords: [
+      'sake 1.5', 'sake 720', 'sake 300', 'sake bottle',
+      'junmai daiginjo', 'junmai ginjo', 'daiginjo', 'nigori sake',
+      'shochu', 'soju', 'umeshu',
+    ],
+  },
+  // Cleaning
   {
     category: 'Cleaning Supplies',
+    glCode: 'Supplies',
     keywords: [
       'bleach', 'sanitizer', 'sanitize', 'disinfect', 'detergent',
       'soap', 'degreaser', 'cleaner', 'cleaning', 'rinse aid',
-      'sponge', 'brush', 'mop', 'broom', 'scrub',
+      'sponge', 'scrub pad', 'mop', 'broom',
     ],
   },
+  // Bar Supplies
   {
     category: 'Bar Supplies',
+    glCode: 'Supplies',
     keywords: [
       'cocktail napkin', 'bar napkin', 'stir stick', 'swizzle',
       'cocktail straw', 'bar towel', 'jigger', 'shaker',
@@ -53,47 +106,158 @@ const CATEGORY_RULES = [
       'bar mat', 'pour spout', 'speed pour',
     ],
   },
+  // Kitchen Supplies
+  {
+    category: 'Kitchen Supplies',
+    glCode: 'Supplies',
+    keywords: [
+      'pastry bag', 'piping bag', 'disposable bag',
+      'parchment paper', 'wax paper', 'cheesecloth',
+    ],
+  },
+  // Non-Food Items
   {
     category: 'Non-Food Items',
+    glCode: 'Cost of goods sold',
     keywords: [
       'toilet paper', 'paper towel', 'napkin', 'glove', 'nitrile',
       'trash bag', 'garbage bag', 'aluminum foil', 'foil wrap',
       'plastic wrap', 'cling film', 'cling wrap', 'saran',
-      'chopstick', 'waribashi', 'straw', 'to-go', 'togo',
-      'takeout', 'take out', 'to go container', 'togo container',
-      'deli container', 'soup container', 'food container',
-      'lid', 'cup sleeve', 'paper cup', 'plastic cup',
-      'apron', 'towel', 'paper bag', 'plastic bag',
-      'to go box', 'togo box', 'takeout box',
-      'paper plate', 'foam plate', 'plastic plate',
-      'paper bowl', 'foam bowl', 'plastic bowl',
-      'utensil', 'plastic fork', 'plastic spoon', 'plastic knife',
+      'apron', 'wiper towel',
       'purchase summary', 'delivery fee', 'fuel surcharge',
     ],
   },
 ];
 
-// Default: if no rule matches, keep as Food Purchases (no change needed)
-const DEFAULT_CATEGORY = 'Food Purchases';
+// Only recategorize items currently in these categories
+const SOURCE_CATEGORIES = ['Food Purchases', 'Food Purchases '];
 
 // ============================================================
-// DETERMINE TARGET CATEGORY
+// DETERMINE TARGET CATEGORY + GL
 // ============================================================
 
-function determineCategory(itemDescription) {
-  const lower = (itemDescription || '').toLowerCase();
-  for (const rule of CATEGORY_RULES) {
-    for (const kw of rule.keywords) {
-      if (lower.includes(kw)) {
-        return { category: rule.category, matchedKeyword: kw };
+function determineTarget(itemDescription, vendorName) {
+  const lowerDesc = (itemDescription || '').toLowerCase();
+  const lowerVendor = (vendorName || '').trim();
+
+  // Check vendor rules first (highest priority)
+  for (const rule of VENDOR_RULES) {
+    for (const vendor of rule.vendors) {
+      if (lowerVendor === vendor || lowerVendor.toLowerCase() === vendor.toLowerCase()) {
+        return {
+          category: rule.category,
+          glCode: rule.glCode,
+          matchType: 'vendor',
+          matchValue: vendor,
+        };
       }
     }
   }
-  return { category: DEFAULT_CATEGORY, matchedKeyword: null };
+
+  // Check keyword rules
+  for (const rule of KEYWORD_RULES) {
+    for (const kw of rule.keywords) {
+      if (lowerDesc.includes(kw)) {
+        return {
+          category: rule.category,
+          glCode: rule.glCode,
+          matchType: 'keyword',
+          matchValue: kw,
+        };
+      }
+    }
+  }
+
+  return null; // No match, keep as is
 }
 
 // ============================================================
-// PARSE AUDIT LOG CSV
+// PARSE xtraCHEF EXPORT CSV
+// ============================================================
+
+function parseExportCSV(filePath) {
+  if (!fs.existsSync(filePath)) {
+    console.log(`  Export file not found: ${filePath}`);
+    return [];
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const lines = content.split('\n').filter(l => l.trim());
+
+  // Find the header line (contains "Item Description")
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    if (lines[i].includes('Item Description')) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    console.log('  Could not find header row in export CSV.');
+    return [];
+  }
+
+  // Parse header
+  const headers = parseCSVLine(lines[headerIdx]);
+  const descIdx = headers.findIndex(h => h.includes('Item Description'));
+  const vendorIdx = headers.findIndex(h => h.includes('Vendor Name'));
+  const catIdx = headers.findIndex(h => h.includes('Category'));
+  const glIdx = headers.findIndex(h => h.includes('GL Code'));
+  const codeIdx = headers.findIndex(h => h.includes('Item Code'));
+
+  const items = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const fields = parseCSVLine(lines[i]);
+    if (fields.length < Math.max(descIdx, vendorIdx, catIdx, glIdx) + 1) continue;
+
+    const currentCat = (fields[catIdx] || '').trim();
+
+    // Only include items in source categories
+    if (!SOURCE_CATEGORIES.some(sc => sc.trim() === currentCat.trim())) continue;
+
+    const description = (fields[descIdx] || '').trim();
+    const vendor = (fields[vendorIdx] || '').trim();
+    const target = determineTarget(description, vendor);
+
+    if (target) {
+      items.push({
+        description,
+        vendor,
+        itemCode: (fields[codeIdx] || '').trim(),
+        currentCategory: currentCat,
+        currentGL: (fields[glIdx] || '').trim(),
+        targetCategory: target.category,
+        targetGL: target.glCode,
+        matchType: target.matchType,
+        matchValue: target.matchValue,
+      });
+    }
+  }
+
+  return items;
+}
+
+function parseCSVLine(line) {
+  const fields = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      fields.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
+// ============================================================
+// PARSE AUDIT LOG CSV (original mode)
 // ============================================================
 
 function parseAuditLog(filePath) {
@@ -110,45 +274,27 @@ function parseAuditLog(filePath) {
     return [];
   }
 
-  // Skip header
   const items = [];
   for (let i = 1; i < lines.length; i++) {
-    // CSV parsing: handle quoted fields
-    const fields = [];
-    let current = '';
-    let inQuotes = false;
-    for (const char of lines[i]) {
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        fields.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    fields.push(current.trim());
+    const fields = parseCSVLine(lines[i]);
 
     // Fields: Timestamp, Item, Vendor, Product, Category, GL_Code, Family_Unit, Status, Notes
     if (fields.length >= 8) {
       const item = {
-        timestamp: fields[0],
         description: fields[1],
         vendor: fields[2],
-        product: fields[3],
         currentCategory: fields[4],
-        glCode: fields[5],
-        familyUnit: fields[6],
+        currentGL: fields[5],
         status: fields[7],
-        notes: fields[8] || '',
       };
 
-      // Only include approved items that are currently "Food Purchases"
-      if (item.status === 'APPROVED' && item.currentCategory === 'Food Purchases') {
-        const result = determineCategory(item.description);
-        if (result.category !== DEFAULT_CATEGORY) {
-          item.targetCategory = result.category;
-          item.matchedKeyword = result.matchedKeyword;
+      if (item.status === 'APPROVED' && SOURCE_CATEGORIES.some(sc => sc.trim() === item.currentCategory.trim())) {
+        const target = determineTarget(item.description, item.vendor);
+        if (target) {
+          item.targetCategory = target.category;
+          item.targetGL = target.glCode;
+          item.matchType = target.matchType;
+          item.matchValue = target.matchValue;
           items.push(item);
         }
       }
@@ -163,7 +309,7 @@ function parseAuditLog(filePath) {
 // ============================================================
 
 function initLogs() {
-  const header = 'Timestamp,Item,Vendor,Old_Category,New_Category,Matched_Keyword,Status,Notes\n';
+  const header = 'Timestamp,Item,Vendor,Old_Category,New_Category,Old_GL,New_GL,Match_Type,Match_Value,Status,Notes\n';
   if (!fs.existsSync(CONFIG.recatLogFile)) {
     fs.writeFileSync(CONFIG.recatLogFile, header);
   }
@@ -179,7 +325,10 @@ function logRecat(file, data) {
     `"${(data.vendor || '').replace(/"/g, '""')}"`,
     `"${(data.oldCategory || '').replace(/"/g, '""')}"`,
     `"${(data.newCategory || '').replace(/"/g, '""')}"`,
-    `"${(data.matchedKeyword || '').replace(/"/g, '""')}"`,
+    `"${(data.oldGL || '').replace(/"/g, '""')}"`,
+    `"${(data.newGL || '').replace(/"/g, '""')}"`,
+    `"${(data.matchType || '').replace(/"/g, '""')}"`,
+    `"${(data.matchValue || '').replace(/"/g, '""')}"`,
     `"${(data.status || '').replace(/"/g, '""')}"`,
     `"${(data.notes || '').replace(/"/g, '""')}"`,
   ].join(',') + '\n';
@@ -209,23 +358,20 @@ function delay(ms) {
 // ============================================================
 
 async function searchForItem(page, itemDescription) {
-  // Clear any existing search
   const searchInput = await page.$('input[placeholder*="Search"]');
   if (!searchInput) {
     console.log('  >> Search input not found');
     return false;
   }
 
-  // Clear and type the search term (use first 20 chars to avoid truncation issues)
+  // Use first 20 chars to avoid truncation issues
   const searchTerm = itemDescription.substring(0, 20).trim();
   await searchInput.click({ clickCount: 3 });
   await searchInput.type(searchTerm, { delay: 30 });
   await delay(2000);
 
-  // Click the matching row
   const clicked = await page.evaluate((desc) => {
     const rows = Array.from(document.querySelectorAll('tr'));
-    // Try exact match first
     let row = rows.find(r => {
       const cells = r.querySelectorAll('td');
       for (const cell of cells) {
@@ -233,7 +379,6 @@ async function searchForItem(page, itemDescription) {
       }
       return false;
     });
-    // Try partial match
     if (!row) {
       row = rows.find(r => r.textContent.includes(desc.substring(0, 15)));
     }
@@ -257,7 +402,6 @@ async function searchForItem(page, itemDescription) {
 // ============================================================
 
 async function setCategoryOnPage(page, categoryName) {
-  // Click the category dropdown
   const catExists = await page.evaluate(() => {
     const btn = Array.from(document.querySelectorAll('button[role="combobox"]'))
       .find(b => {
@@ -269,7 +413,6 @@ async function setCategoryOnPage(page, categoryName) {
   });
 
   if (!catExists) {
-    // Try select dropdown
     const selectExists = await page.evaluate(() => {
       const selects = Array.from(document.querySelectorAll('select'));
       return selects.some(s => {
@@ -284,7 +427,6 @@ async function setCategoryOnPage(page, categoryName) {
       return false;
     }
 
-    // Use native select
     const result = await page.evaluate((name) => {
       const selects = Array.from(document.querySelectorAll('select'));
       const sel = selects.find(s => {
@@ -326,7 +468,6 @@ async function setCategoryOnPage(page, categoryName) {
   });
   await delay(800);
 
-  // Search for the category
   const searchInput = await page.$('input[placeholder="Search..."]');
   if (searchInput) {
     await searchInput.type(categoryName.substring(0, 6), { delay: 50 });
@@ -353,6 +494,119 @@ async function setCategoryOnPage(page, categoryName) {
   await page.keyboard.press('Escape');
   await delay(300);
   return false;
+}
+
+// ============================================================
+// SET GL CODE ON ITEM DETAIL PAGE
+// ============================================================
+
+async function setGLCodeOnPage(page, glCode) {
+  const result = await page.evaluate((targetGL) => {
+    // Find the GL code input or select
+    const inputs = Array.from(document.querySelectorAll('input'));
+    const glInput = inputs.find(i => {
+      const id = (i.id || '').toLowerCase();
+      const name = (i.name || '').toLowerCase();
+      const placeholder = (i.placeholder || '').toLowerCase();
+      return id.includes('gl') || name.includes('gl') || placeholder.includes('gl');
+    });
+
+    if (glInput) {
+      glInput.value = '';
+      glInput.value = targetGL;
+      glInput.dispatchEvent(new Event('input', { bubbles: true }));
+      glInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return { found: true, type: 'input' };
+    }
+
+    // Try select/combobox
+    const selects = Array.from(document.querySelectorAll('select'));
+    const glSelect = selects.find(s => {
+      const id = (s.id || '').toLowerCase();
+      const name = (s.name || '').toLowerCase();
+      return id.includes('gl') || name.includes('gl');
+    });
+
+    if (glSelect) {
+      const options = Array.from(glSelect.options);
+      const match = options.find(o => o.text.trim() === targetGL || o.value === targetGL);
+      if (match) {
+        glSelect.value = match.value;
+        glSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        return { found: true, type: 'select', set: true };
+      }
+      return { found: true, type: 'select', set: false };
+    }
+
+    // Try combobox button
+    const combos = Array.from(document.querySelectorAll('button[role="combobox"]'));
+    const glCombo = combos.find(b => {
+      const hint = b.getAttribute('hint') || '';
+      const ariaLabel = b.getAttribute('aria-label') || '';
+      const text = b.textContent.toLowerCase();
+      return hint.toLowerCase().includes('gl') || ariaLabel.toLowerCase().includes('gl') || text.includes('gl');
+    });
+
+    if (glCombo) {
+      glCombo.click();
+      return { found: true, type: 'combobox' };
+    }
+
+    return { found: false };
+  }, glCode);
+
+  if (!result.found) {
+    console.log('  >> GL code field not found');
+    return false;
+  }
+
+  if (result.type === 'input') {
+    await delay(500);
+    // May need to select from dropdown that appears
+    await delay(500);
+    const selected = await page.evaluate((targetGL) => {
+      const options = Array.from(document.querySelectorAll('li[role="option"], div[role="option"], .dropdown-item'));
+      const match = options.find(o => o.textContent.trim().includes(targetGL));
+      if (match) {
+        match.click();
+        return true;
+      }
+      return false;
+    }, glCode);
+    await delay(500);
+    return true;
+  }
+
+  if (result.type === 'combobox') {
+    await delay(800);
+    const searchInput = await page.$('input[placeholder="Search..."]');
+    if (searchInput) {
+      await searchInput.type(glCode.substring(0, 6), { delay: 50 });
+      await delay(800);
+    }
+
+    const optionClicked = await page.evaluate((gl) => {
+      const options = Array.from(document.querySelectorAll('li[role="option"], div[role="option"]'));
+      const match = options.find(o => o.textContent.trim().includes(gl));
+      if (match) {
+        match.click();
+        return true;
+      }
+      return false;
+    }, glCode);
+
+    if (optionClicked) {
+      await delay(CONFIG.delayAfterAction);
+      return true;
+    }
+
+    await page.keyboard.press('Escape');
+    await delay(300);
+    console.log(`  >> GL code "${glCode}" not found in dropdown`);
+    return false;
+  }
+
+  return result.set || false;
 }
 
 // ============================================================
@@ -387,15 +641,12 @@ async function clickSave(page) {
 // ============================================================
 
 async function closeItemDetail(page) {
-  // Click the X button or back arrow
   const closed = await page.evaluate(() => {
-    // Try close button (X)
     const closeBtn = document.querySelector('button[aria-label="Close"], button[aria-label="close"]');
     if (closeBtn) {
       closeBtn.click();
       return true;
     }
-    // Try any X-like button in the header area
     const buttons = Array.from(document.querySelectorAll('button'));
     const xBtn = buttons.find(b => {
       const text = b.textContent.trim();
@@ -413,7 +664,6 @@ async function closeItemDetail(page) {
     return true;
   }
 
-  // Try clicking the back arrow
   const backed = await page.evaluate(() => {
     const arrows = Array.from(document.querySelectorAll('button, a'));
     const back = arrows.find(a => {
@@ -432,7 +682,6 @@ async function closeItemDetail(page) {
     return true;
   }
 
-  // Navigate directly back to item library
   await page.goto(CONFIG.itemLibraryUrl, { waitUntil: 'networkidle2', timeout: 30000 });
   await delay(3000);
   return true;
@@ -444,28 +693,38 @@ async function closeItemDetail(page) {
 
 async function main() {
   console.log('==============================================');
-  console.log('  xtraCHEF Category Cleanup v1.0');
-  console.log('  Recategorize items from audit log');
+  console.log('  xtraCHEF Category Cleanup v2.0');
+  console.log('  Recategorize items from audit log or export');
   console.log('==============================================');
-  console.log(`  Mode: ${DRY_RUN ? 'DRY RUN (preview only)' : 'LIVE (will update categories)'}`);
+  console.log(`  Mode: ${DRY_RUN ? 'DRY RUN (preview only)' : 'LIVE (will update categories + GL codes)'}`);
+  console.log(`  Source: ${USE_EXPORT ? 'xtraCHEF export CSV' : 'audit-log.csv'}`);
   console.log(`  Limit: ${LIMIT} items`);
   console.log(`  Pause: ${PAUSE_EACH ? 'Yes' : 'No'}`);
   console.log('==============================================\n');
 
-  // Parse audit log and find items that need recategorization
-  console.log('Reading audit log...');
-  const itemsToRecat = parseAuditLog(CONFIG.auditLogFile);
+  // Parse items
+  let itemsToRecat;
+  if (USE_EXPORT && EXPORT_FILE) {
+    console.log(`Reading export file: ${EXPORT_FILE}`);
+    itemsToRecat = parseExportCSV(EXPORT_FILE);
+  } else {
+    console.log('Reading audit log...');
+    itemsToRecat = parseAuditLog(CONFIG.auditLogFile);
+  }
 
   if (itemsToRecat.length === 0) {
-    console.log('\nNo items need recategorization. Everything is already correct.');
-    console.log('(Only items with status APPROVED and category "Food Purchases" that match');
-    console.log(' a non-food keyword rule will be recategorized.)\n');
+    console.log('\nNo items need recategorization.');
+    console.log('(Only items currently in "Food Purchases" that match a vendor or keyword rule will be recategorized.)\n');
+    if (USE_EXPORT) {
+      console.log('Tip: Make sure the export CSV has the correct format with headers:');
+      console.log('  "Location Name","Vendor Name","Item Code","Item Description",...,"Category","GL Code",...\n');
+    }
     return;
   }
 
   console.log(`\nFound ${itemsToRecat.length} items to recategorize:\n`);
 
-  // Show preview
+  // Show preview grouped by target category
   const categoryGroups = {};
   for (const item of itemsToRecat) {
     if (!categoryGroups[item.targetCategory]) categoryGroups[item.targetCategory] = [];
@@ -473,9 +732,11 @@ async function main() {
   }
 
   for (const [cat, items] of Object.entries(categoryGroups)) {
-    console.log(`  ${cat} (${items.length} items):`);
+    const glCode = items[0].targetGL || '(no change)';
+    console.log(`  ${cat} | GL: ${glCode} (${items.length} items):`);
     for (const item of items.slice(0, 5)) {
-      console.log(`    - ${item.description} [matched: "${item.matchedKeyword}"]`);
+      const matchInfo = item.matchType === 'vendor' ? `vendor: ${item.matchValue}` : `keyword: "${item.matchValue}"`;
+      console.log(`    - ${item.description} [${matchInfo}]`);
     }
     if (items.length > 5) {
       console.log(`    ... and ${items.length - 5} more`);
@@ -519,6 +780,7 @@ async function main() {
 
   console.log('\n========================================');
   console.log(`  READY TO RECATEGORIZE ${Math.min(itemsToRecat.length, LIMIT)} ITEMS`);
+  console.log('  This will update categories AND GL codes.');
   console.log('  Press ENTER to start, or Ctrl+C to abort.');
   console.log('========================================\n');
   await waitForEnter('Press ENTER to begin... ');
@@ -535,8 +797,9 @@ async function main() {
     console.log(`\n--- ${processed}/${Math.min(itemsToRecat.length, LIMIT)} ---`);
     console.log(`  Item:     ${item.description}`);
     console.log(`  Vendor:   ${item.vendor}`);
-    console.log(`  Current:  ${item.currentCategory}`);
-    console.log(`  Target:   ${item.targetCategory} [keyword: "${item.matchedKeyword}"]`);
+    console.log(`  Current:  ${item.currentCategory} | GL: ${item.currentGL}`);
+    console.log(`  Target:   ${item.targetCategory} | GL: ${item.targetGL}`);
+    console.log(`  Match:    ${item.matchType}: ${item.matchValue}`);
 
     try {
       // Make sure we're on the item library page
@@ -558,7 +821,10 @@ async function main() {
           vendor: item.vendor,
           oldCategory: item.currentCategory,
           newCategory: item.targetCategory,
-          matchedKeyword: item.matchedKeyword,
+          oldGL: item.currentGL,
+          newGL: item.targetGL,
+          matchType: item.matchType,
+          matchValue: item.matchValue,
           status: 'NOT_FOUND',
           notes: 'Item not found in library search',
         });
@@ -599,7 +865,10 @@ async function main() {
           vendor: item.vendor,
           oldCategory: item.currentCategory,
           newCategory: item.targetCategory,
-          matchedKeyword: item.matchedKeyword,
+          oldGL: item.currentGL,
+          newGL: item.targetGL,
+          matchType: item.matchType,
+          matchValue: item.matchValue,
           status: 'CAT_NOT_SET',
           notes: 'Category dropdown option not found',
         });
@@ -607,17 +876,29 @@ async function main() {
         continue;
       }
 
+      // Set the GL code if specified
+      if (item.targetGL && item.targetGL !== item.currentGL) {
+        console.log(`  >> Setting GL code to: ${item.targetGL}`);
+        const glSet = await setGLCodeOnPage(page, item.targetGL);
+        if (!glSet) {
+          console.log(`  >> Warning: Could not set GL code, saving category change only`);
+        }
+      }
+
       // Save
       await clickSave(page);
 
-      console.log(`  >> UPDATED: ${item.currentCategory} -> ${item.targetCategory}`);
+      console.log(`  >> UPDATED: ${item.currentCategory} -> ${item.targetCategory} | GL: ${item.currentGL} -> ${item.targetGL}`);
       updated++;
       logRecat(CONFIG.recatLogFile, {
         item: item.description,
         vendor: item.vendor,
         oldCategory: item.currentCategory,
         newCategory: item.targetCategory,
-        matchedKeyword: item.matchedKeyword,
+        oldGL: item.currentGL,
+        newGL: item.targetGL,
+        matchType: item.matchType,
+        matchValue: item.matchValue,
         status: 'UPDATED',
         notes: '',
       });
@@ -633,12 +914,14 @@ async function main() {
         vendor: item.vendor,
         oldCategory: item.currentCategory,
         newCategory: item.targetCategory,
-        matchedKeyword: item.matchedKeyword,
+        oldGL: item.currentGL,
+        newGL: item.targetGL,
+        matchType: item.matchType,
+        matchValue: item.matchValue,
         status: 'ERROR',
         notes: error.message.substring(0, 100),
       });
 
-      // Try to recover
       try {
         await page.goto(CONFIG.itemLibraryUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         await delay(3000);
